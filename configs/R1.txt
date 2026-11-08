@@ -1,0 +1,125 @@
+! ============================================
+! R1 - Routeur du siège (Cisco 2911)
+! Inter-VLAN, DHCP, OSPF, NAT/PAT, ACL, SSH
+! ============================================
+enable
+configure terminal
+hostname R1
+no ip domain-lookup
+ip domain-name lab.local
+enable secret CHANGE_ME
+username admin privilege 15 secret CHANGE_ME
+service password-encryption
+banner motd # Acces reserve au personnel autorise #
+!
+! ---------- Router-on-a-stick ----------
+interface GigabitEthernet0/0
+ description Trunk vers SW1
+ no shutdown
+!
+interface GigabitEthernet0/0.10
+ description VLAN 10 Admin
+ encapsulation dot1Q 10
+ ip address 192.168.10.1 255.255.255.0
+ ip nat inside
+!
+interface GigabitEthernet0/0.20
+ description VLAN 20 Technique
+ encapsulation dot1Q 20
+ ip address 192.168.20.1 255.255.255.0
+ ip nat inside
+!
+interface GigabitEthernet0/0.30
+ description VLAN 30 Invites
+ encapsulation dot1Q 30
+ ip address 192.168.30.1 255.255.255.0
+ ip nat inside
+ ip access-group ACL_INVITES in
+!
+interface GigabitEthernet0/0.99
+ description VLAN 99 Management (natif)
+ encapsulation dot1Q 99 native
+ ip address 192.168.99.1 255.255.255.0
+!
+! ---------- Liens WAN ----------
+interface GigabitEthernet0/1
+ description Lien vers R2
+ ip address 10.0.12.1 255.255.255.252
+ ip nat inside
+ no shutdown
+!
+interface GigabitEthernet0/2
+ description Sortie Internet (ISP)
+ ip address 203.0.113.2 255.255.255.252
+ ip nat outside
+ no shutdown
+!
+! ---------- DHCP ----------
+ip dhcp excluded-address 192.168.10.1 192.168.10.10
+ip dhcp excluded-address 192.168.20.1 192.168.20.10
+ip dhcp excluded-address 192.168.30.1 192.168.30.10
+!
+ip dhcp pool VLAN10_ADMIN
+ network 192.168.10.0 255.255.255.0
+ default-router 192.168.10.1
+ dns-server 8.8.8.8
+!
+ip dhcp pool VLAN20_TECH
+ network 192.168.20.0 255.255.255.0
+ default-router 192.168.20.1
+ dns-server 8.8.8.8
+!
+ip dhcp pool VLAN30_INVITES
+ network 192.168.30.0 255.255.255.0
+ default-router 192.168.30.1
+ dns-server 8.8.8.8
+!
+! ---------- Routage ----------
+ip route 0.0.0.0 0.0.0.0 203.0.113.1
+!
+router ospf 1
+ router-id 1.1.1.1
+ network 192.168.10.0 0.0.0.255 area 0
+ network 192.168.20.0 0.0.0.255 area 0
+ network 192.168.30.0 0.0.0.255 area 0
+ network 192.168.99.0 0.0.0.255 area 0
+ network 10.0.12.0 0.0.0.3 area 0
+ passive-interface GigabitEthernet0/0.10
+ passive-interface GigabitEthernet0/0.20
+ passive-interface GigabitEthernet0/0.30
+ passive-interface GigabitEthernet0/0.99
+ default-information originate
+!
+! ---------- NAT / PAT ----------
+ip access-list standard NAT_LAN
+ permit 192.168.0.0 0.0.255.255
+!
+ip nat inside source list NAT_LAN interface GigabitEthernet0/2 overload
+!
+! ---------- ACL Invites ----------
+! Les invites accedent a Internet uniquement, pas aux reseaux internes.
+! DHCP (renouvellement unicast vers la passerelle) explicitement autorise.
+ip access-list extended ACL_INVITES
+ permit udp any any eq bootps
+ deny ip 192.168.30.0 0.0.0.255 192.168.0.0 0.0.255.255
+ deny ip 192.168.30.0 0.0.0.255 10.0.0.0 0.255.255.255
+ permit ip 192.168.30.0 0.0.0.255 any
+!
+! ---------- Administration SSH ----------
+! Executer ensuite : crypto key generate rsa  (taille 2048)
+ip ssh version 2
+ip access-list standard ADMIN_SSH
+ permit 192.168.10.0 0.0.0.255
+ permit 192.168.99.0 0.0.0.255
+!
+line console 0
+ login local
+ logging synchronous
+line vty 0 4
+ access-class ADMIN_SSH in
+ transport input ssh
+ login local
+ exec-timeout 10 0
+!
+end
+write memory

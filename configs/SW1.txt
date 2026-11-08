@@ -1,0 +1,82 @@
+! ============================================
+! SW1 - Switch d'accès du siège (Cisco 2960)
+! VLAN, trunk 802.1Q, sécurisation des ports, SSH
+! ============================================
+enable
+configure terminal
+hostname SW1
+no ip domain-lookup
+ip domain-name lab.local
+enable secret CHANGE_ME
+username admin privilege 15 secret CHANGE_ME
+service password-encryption
+!
+vlan 10
+ name ADMIN
+vlan 20
+ name TECHNIQUE
+vlan 30
+ name INVITES
+vlan 99
+ name MANAGEMENT
+vlan 999
+ name PARKING
+!
+! ---------- Ports d'accès ----------
+interface range FastEthernet0/1 - 5
+ switchport mode access
+ switchport access vlan 10
+ spanning-tree portfast
+ spanning-tree bpduguard enable
+!
+interface range FastEthernet0/6 - 10
+ switchport mode access
+ switchport access vlan 20
+ spanning-tree portfast
+ spanning-tree bpduguard enable
+!
+interface range FastEthernet0/11 - 15
+ switchport mode access
+ switchport access vlan 30
+ spanning-tree portfast
+ spanning-tree bpduguard enable
+!
+! Port security sur les postes Admin (1 adresse MAC apprise, sticky)
+interface range FastEthernet0/1 - 5
+ switchport port-security
+ switchport port-security maximum 1
+ switchport port-security mac-address sticky
+ switchport port-security violation restrict
+!
+! ---------- Ports inutilisés ----------
+interface range FastEthernet0/16 - 24 , GigabitEthernet0/2
+ switchport mode access
+ switchport access vlan 999
+ shutdown
+!
+! ---------- Trunk vers R1 ----------
+interface GigabitEthernet0/1
+ description Trunk vers R1
+ switchport mode trunk
+ switchport trunk native vlan 99
+ switchport trunk allowed vlan 10,20,30,99
+ switchport nonegotiate
+!
+! ---------- Management ----------
+interface Vlan99
+ ip address 192.168.99.2 255.255.255.0
+ no shutdown
+ip default-gateway 192.168.99.1
+!
+! Executer ensuite : crypto key generate rsa  (taille 2048)
+ip ssh version 2
+line console 0
+ login local
+ logging synchronous
+line vty 0 15
+ transport input ssh
+ login local
+ exec-timeout 10 0
+!
+end
+write memory
